@@ -35,7 +35,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 @app.get("/", include_in_schema=False, name="home")
 @app.get("/posts", include_in_schema=False, name="posts")
 async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).order_by(models.Post.date_posted.desc()))
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request,
@@ -65,7 +65,7 @@ async def user_posts_page(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    result = await db.execute(select(models.User).where(models.User.id == user_id).order_by(models.User.username))
     user = result.scalars().first()
     if not user:
         raise HTTPException(
@@ -73,7 +73,7 @@ async def user_posts_page(
             detail="User not found",
         )
     result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(
-        models.Post.user_id == user_id))
+        models.Post.user_id == user_id).order_by(models.Post.date_posted.desc()))
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request,
@@ -81,18 +81,18 @@ async def user_posts_page(
         {"posts": posts, "user": user, "title": f"{user.username}'s Posts"},
     )
 
+
 @app.exception_handler(StarletteHTTPException)
 async def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
- 
+
     if request.url.path.startswith("/api"):
         return await http_exception_handler(request, exception)
-    
+
     message = (
         exception.detail
         if exception.detail
         else "An error occurred. Please check your request and try again."
     )
-
 
     return templates.TemplateResponse(
         request,
