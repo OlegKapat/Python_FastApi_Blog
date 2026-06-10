@@ -48,5 +48,9 @@ class PostResponse(PostBase):
     author: UserPublic
 
 
-
-    id: int
+class PaginatedPostsResponse(BaseModel):
+    posts: list[PostResponse]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
