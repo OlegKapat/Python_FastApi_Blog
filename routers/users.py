@@ -105,10 +105,10 @@ async def forgot_password(
             ),
         )
 
-        token = generate_reset_token()
+        token = generate_password_reset_token()
         token_hash = hash_reset_token(token)
         expires_at = datetime.now(UTC) + timedelta(
-            minutes=settings.reset_token_expire_minutes
+            minutes=settings.reset_token_expire_minute
         )
 
         reset_token = models.PasswordResetToken(
@@ -131,7 +131,7 @@ async def forgot_password(
     }
 
 
-router.post("/reset-password", status_code=status.HTTP_200_OK)
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
 async def reset_password(
     request_data: ResetPasswordRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
