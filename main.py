@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Request, HTTPException, status, Depends
 from contextlib import asynccontextmanager
 from fastapi.templating import Jinja2Templates
@@ -10,16 +11,21 @@ from sqlalchemy import select,func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from . import models
-from .database import get_db, Base, engine
+from .database import get_db, engine
 from .routers import posts, users
 from .config import settings
 
+# Only for sqlite, add connect_args={"check_same_thread": False} to create_async_engine in database.py
+# @asynccontextmanager
+# async def lifespan(_app: FastAPI):
+#     # Startup code: Create database tables
+#     async with engine.begin() as conn:
+#         await conn.run_sync(Base.metadata.create_all)
+#     yield
+#     await engine.dispose()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Startup code: Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown code: Dispose of the database engine
     await engine.dispose()
