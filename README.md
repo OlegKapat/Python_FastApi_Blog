@@ -4,3 +4,4 @@ alembic init -t async alembic
 alembic revision --autogenerate -m "initial schema"
 alembic upgrade head
 psql blog -U bloguser 
+python populate_db.py
