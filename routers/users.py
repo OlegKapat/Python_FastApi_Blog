@@ -1,22 +1,23 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status,UploadFile,Query,BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Query, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from ..image_utils import delete_profile_image, process_profile_image
+from ..image_utils import delete_profile_image, process_profile_image, upload_profile_image, delete_profile_image
 from PIL import UnidentifiedImageError
 from .. import models
 from ..database import get_db
 from starlette.concurrency import run_in_threadpool
-from ..schemas import PostResponse, UserCreate, UserUpdate, UserPublic, UserPrivate, Token, PaginatedPostsResponse,ChangePasswordRequest, ForgotPasswordRequest, ResetPasswordRequest
-from datetime import timedelta,UTC, datetime
+from ..schemas import PostResponse, UserCreate, UserUpdate, UserPublic, UserPrivate, Token, PaginatedPostsResponse, ChangePasswordRequest, ForgotPasswordRequest, ResetPasswordRequest
+from datetime import timedelta, UTC, datetime
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select, func
 from ..auth import create_access_token, hash_password, verify_password, CurrentUser, generate_password_reset_token, hash_reset_token
 from ..config import settings
 from ..email_utils import send_password_reset_email
+from botocore.exceptions import ClientError
 
 router = APIRouter()
 
@@ -41,11 +42,13 @@ async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already exists. Please choose a different email.",
         )
-    new_user = models.User(username=user.username, email=user.email.lower(), password_hash=hash_password(user.password))
+    new_user = models.User(username=user.username, email=user.email.lower(
+    ), password_hash=hash_password(user.password))
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
@@ -71,12 +74,14 @@ async def login_for_access_token(
         )
 
     # Create access token with user id as subject
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token_expires = timedelta(
+        minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=access_token_expires,
     )
     return Token(access_token=access_token, token_type="bearer")
+
 
 @router.get("/me", response_model=UserPrivate)
 async def get_current_user(
@@ -182,6 +187,7 @@ async def reset_password(
     return {
         "message": "Password reset successfully. You can now log in with your new password."
     }
+
 
 @router.patch("/me/password", status_code=status.HTTP_200_OK)
 async def change_password(
@@ -297,9 +303,12 @@ async def delete_user(user_id: int, current_user: CurrentUser, db: Annotated[Asy
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+    old_filename = user.image_file
 
     await db.delete(user)
     await db.commit()
+    if old_filename:
+        await delete_profile_image(old_filename)
 
 
 @router.get("/{user_id}/posts", response_model=PaginatedPostsResponse)
@@ -344,6 +353,7 @@ async def get_user_posts(
         has_more=has_more,
     )
 
+
 @router.patch("/{user_id}/picture", response_model=UserPrivate)
 async def upload_profile_picture(
     user_id: int,
@@ -366,11 +376,19 @@ async def upload_profile_picture(
         )
 
     try:
-        new_filename = await run_in_threadpool(process_profile_image, content)
+        processed_bytes, new_filename = await run_in_threadpool(process_profile_image, content)
     except UnidentifiedImageError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid image file. Please upload a valid image (JPEG, PNG, GIF, WebP).",
+        ) from err
+    # Upload to S3 (also runs in threadpool via async wrapper)
+    try:
+        await upload_profile_image(processed_bytes, new_filename)
+    except ClientError as err:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image. Please try again.",
         ) from err
 
     old_filename = current_user.image_file
@@ -380,7 +398,7 @@ async def upload_profile_picture(
     await db.refresh(current_user)
 
     if old_filename:
-        delete_profile_image(old_filename)
+        await delete_profile_image(old_filename)
 
     return current_user
 
@@ -409,6 +427,6 @@ async def delete_user_picture(
     await db.commit()
     await db.refresh(current_user)
 
-    delete_profile_image(old_filename)
+    await delete_profile_image(old_filename)
 
     return current_user
