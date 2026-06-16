@@ -5,3 +5,4 @@ alembic revision --autogenerate -m "initial schema"
 alembic upgrade head
 psql blog -U bloguser 
 python populate_db.py
+pytest tests/test_posts.py -v
